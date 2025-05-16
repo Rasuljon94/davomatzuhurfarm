@@ -68,7 +68,7 @@ def main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="✅ Ishga keldik")],
-            [KeyboardButton(text="🃽 Ishdan ketdim")],
+            [KeyboardButton(text="✅Ishdan ketdik")],
             [KeyboardButton(text="📱 Lokatsiya jo'natish", request_location=True)]
         ],
         resize_keyboard=True
