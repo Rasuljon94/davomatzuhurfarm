@@ -67,7 +67,7 @@ user_data = {}  # user_id: {full_name, is_checked_in, last_check_date, last_acti
 def main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="✅ Ishga keldim")],
+            [KeyboardButton(text="✅ Ishga keldik")],
             [KeyboardButton(text="🃽 Ishdan ketdim")],
             [KeyboardButton(text="📱 Lokatsiya jo'natish", request_location=True)]
         ],
