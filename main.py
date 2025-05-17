@@ -68,7 +68,7 @@ def main_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="✅ Ishga keldim")],
-            [KeyboardButton(text="✅Ishdan ketdim")],
+            [KeyboardButton(text="🏁 Ishdan ketdim")],
             [KeyboardButton(text="📱 Lokatsiya jo'natish", request_location=True)]
         ],
         resize_keyboard=True
@@ -117,7 +117,7 @@ async def process_dob(message: Message, state: FSMContext):
     }
     await message.answer("Ro‘yxatdan o‘tdingiz.", reply_markup=main_keyboard())
 
-@dp.message(lambda m: m.text in ["✅ Ishga keldim", "🃽 Ishdan ketdim"])
+@dp.message(lambda m: m.text in ["✅ Ishga keldim", "🏁 Ishdan ketdim"])
 async def store_action(message: Message):
     uid = message.from_user.id
     if uid not in user_data:
