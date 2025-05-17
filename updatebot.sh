@@ -1,5 +1,6 @@
 #!/bin/bash
 cd ~/davomatzuhurfarm/
-git pull origin main
+git pull origin master
 source ~/davomatenv/bin/activate
+pkill -f main.py
 screen -S davomatbot -dm python main.py
