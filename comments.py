@@ -53,5 +53,5 @@ async def regular_text(message: Message):
     for admin_id in ADMIN_IDS:
         await message.bot.send_message(
             admin_id,
-            f"📨 Xodimdan xabar\n👤 {full_name}\n📝 {message.text}"
+            f"📨 Xodimdan xabar yubordi\n👤 {full_name}\n📝 {message.text}"
         )
