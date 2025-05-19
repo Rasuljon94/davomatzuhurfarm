@@ -1,0 +1,13 @@
+# Sirli va maxsus fayllar
+config.py
+attendance.db
+hisobot_*.xlsx
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+env/
