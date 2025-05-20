@@ -1,20 +1,22 @@
 from aiogram import Router, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from config import ADMIN_IDS, ALLOWED_USER_IDS, BRANCH_LOCATIONS
+from config import ADMIN_IDS, ALLOWED_USER_IDS
 from database import is_user_registered, register_user
 from utils import get_main_keyboard
 from datetime import datetime
 
 router = Router()
-BRANCH_NAMES = list(BRANCH_LOCATIONS.keys())
 
 class FSMRegistration(StatesGroup):
     name = State()
     surname = State()
     birthdate = State()
-    branch = State()
+    start_time = State()
+    end_time = State()
+    address = State()
+    phone = State()
 
 @router.message(F.text == "/start")
 async def start_registration(message: Message, state: FSMContext):
@@ -49,7 +51,7 @@ async def ask_birthdate(message: Message, state: FSMContext):
     await state.set_state(FSMRegistration.birthdate)
 
 @router.message(FSMRegistration.birthdate)
-async def ask_branch(message: Message, state: FSMContext):
+async def ask_start_time(message: Message, state: FSMContext):
     birthdate = message.text.strip()
     try:
         datetime.strptime(birthdate, "%d.%m.%Y")
@@ -58,19 +60,30 @@ async def ask_branch(message: Message, state: FSMContext):
         return
 
     await state.update_data(birthdate=birthdate)
+    await message.answer("🕘 Ish boshlanish vaqtini HH:MM formatda kiriting (masalan, 09:00):")
+    await state.set_state(FSMRegistration.start_time)
 
-    buttons = [[KeyboardButton(text=branch)] for branch in BRANCH_NAMES]
-    markup = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
-    await message.answer("📍 Filialingizni tanlang:", reply_markup=markup)
-    await state.set_state(FSMRegistration.branch)
+@router.message(FSMRegistration.start_time)
+async def ask_end_time(message: Message, state: FSMContext):
+    await state.update_data(start_time=message.text.strip())
+    await message.answer("🕔 Ish tugash vaqtini HH:MM formatda kiriting (masalan, 18:00):")
+    await state.set_state(FSMRegistration.end_time)
 
-@router.message(FSMRegistration.branch)
+@router.message(FSMRegistration.end_time)
+async def ask_address(message: Message, state: FSMContext):
+    await state.update_data(end_time=message.text.strip())
+    await message.answer("📍 Yashash manzilingizni kiriting:")
+    await state.set_state(FSMRegistration.address)
+
+@router.message(FSMRegistration.address)
+async def ask_phone(message: Message, state: FSMContext):
+    await state.update_data(address=message.text)
+    await message.answer("📞 Telefon raqamingizni kiriting (masalan, +998901234567):")
+    await state.set_state(FSMRegistration.phone)
+
+@router.message(FSMRegistration.phone)
 async def complete_registration(message: Message, state: FSMContext):
-    if message.text not in BRANCH_NAMES:
-        await message.answer("❗ Noto‘g‘ri filial tanlandi. Iltimos, tugma orqali tanlang.")
-        return
-
-    await state.update_data(branch=message.text)
+    await state.update_data(phone=message.text)
     data = await state.get_data()
 
     register_user(
@@ -78,7 +91,10 @@ async def complete_registration(message: Message, state: FSMContext):
         name=data["name"],
         surname=data["surname"],
         birthdate=data["birthdate"],
-        branch=data["branch"]
+        start_time=data["start_time"],
+        end_time=data["end_time"],
+        address=data["address"],
+        phone=data["phone"]
     )
 
     await message.answer("✅ Ro'yxatdan o'tish yakunlandi!", reply_markup=get_main_keyboard())

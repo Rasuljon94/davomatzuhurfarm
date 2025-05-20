@@ -1,6 +1,8 @@
 import sqlite3
 from datetime import datetime
 import pandas as pd
+from config import ALLOWED_USER_IDS
+
 
 from sqlite3 import Connection
 conn: Connection = sqlite3.connect("davomat.db")
@@ -14,7 +16,10 @@ def create_tables():
             name TEXT,
             surname TEXT,
             birthdate TEXT,
-            branch TEXT
+            start_time TEXT,
+            end_time TEXT,
+            address TEXT,
+            phone TEXT
         )
     """)
     cursor.execute("""
@@ -33,13 +38,33 @@ def create_tables():
             note TEXT
         )
     """)
-
-def register_user(telegram_id, name, surname, birthdate, branch):
     cursor.execute("""
-        INSERT OR IGNORE INTO users (telegram_id, name, surname, birthdate, branch)
-        VALUES (?, ?, ?, ?, ?)
-    """, (telegram_id, name, surname, birthdate, branch))
+        CREATE TABLE IF NOT EXISTS allowed_users (
+            telegram_id INTEGER PRIMARY KEY
+        )
+    """)
+
     conn.commit()
+
+def add_allowed_user(telegram_id: int):
+    cursor.execute("INSERT OR IGNORE INTO allowed_users (telegram_id) VALUES (?)", (telegram_id,))
+    conn.commit()
+
+def is_user_allowed(telegram_id: int) -> bool:
+    cursor.execute("SELECT 1 FROM allowed_users WHERE telegram_id = ?", (telegram_id,))
+    return cursor.fetchone() is not None
+
+
+
+def register_user(telegram_id, name, surname, birthdate, start_time, end_time, address, phone):
+    cursor.execute("""
+        INSERT OR IGNORE INTO users (
+            telegram_id, name, surname, birthdate,
+            start_time, end_time, address, phone
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (telegram_id, name, surname, birthdate, start_time, end_time, address, phone))
+    conn.commit()
+
 
 def is_user_registered(telegram_id):
     cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
@@ -88,11 +113,12 @@ def save_note_to_today_attendance(telegram_id: int, note: str):
     now = datetime.now().strftime("%H:%M")
 
     # Foydalanuvchi ma'lumotlari
-    cursor.execute("SELECT id, name, surname, branch FROM users WHERE telegram_id = ?", (telegram_id,))
+    cursor.execute("SELECT id, name, surname FROM users WHERE telegram_id = ?", (telegram_id,))
     row = cursor.fetchone()
     if not row:
         return
-    user_id, name, surname, branch = row
+    user_id, name, surname = row
+    branch =  "-"  # ← Bo‘sh bo‘lsa, "-" belgilaymiz
     full_name = f"{name} {surname}"
 
     # 1. Avval 'ishdan_ketdi' yozuvi borligini tekshirish
@@ -183,9 +209,28 @@ def update_user_fields(telegram_id, fields: dict):
     """, values)
     conn.commit()
 
+
 def delete_user(telegram_id):
-    cursor.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
+    cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    if not row:
+        return
+    user_id = row[0]
+
+    # Attendance yozuvlarini o‘chirish
+    cursor.execute("DELETE FROM attendance WHERE user_id = ?", (user_id,))
+
+    # Users jadvalidan o‘chirish
+    cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    # ALLOWED_USER_IDS ro‘yxatidan chiqarish
+    try:
+        ALLOWED_USER_IDS.remove(telegram_id)
+    except ValueError:
+        pass
+
     conn.commit()
+
 
 def export_users_to_excel():
     df = pd.read_sql_query("SELECT * FROM users", conn)
