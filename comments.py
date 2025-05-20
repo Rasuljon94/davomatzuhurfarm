@@ -5,7 +5,7 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from utils import get_current_time, get_current_date, get_main_keyboard
-from database import log_comment, get_user_name
+from database import save_note_to_today_attendance, get_user_name
 from config import ADMIN_IDS
 
 router = Router()
@@ -20,6 +20,8 @@ async def ask_for_comment(message: Message, state: FSMContext):
     await message.answer("✍️ Iltimos, izohingizni yozing:")
     await state.set_state(FSMComment.waiting_for_comment)
 
+from database import save_note_to_today_attendance
+
 @router.message(FSMComment.waiting_for_comment)
 async def receive_comment(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -33,8 +35,11 @@ async def receive_comment(message: Message, state: FSMContext):
     full_name = get_user_name(user_id)
 
     await state.clear()
-    log_comment(user_id, text, date, time)
 
+    # 🔁 YANGI: Izohni attendance.note ga qo‘shamiz
+    save_note_to_today_attendance(user_id, text)
+
+    # 🔔 Adminlarga yuboriladi
     for admin_id in ADMIN_IDS:
         await message.bot.send_message(
             admin_id,
@@ -42,6 +47,7 @@ async def receive_comment(message: Message, state: FSMContext):
         )
 
     await message.answer("✅ Izoh qabul qilindi!", reply_markup=get_main_keyboard())
+
 
 @router.message(F.text)
 async def regular_text(message: Message):

@@ -16,14 +16,14 @@ router = Router()
 
 @router.message(F.text == "✅ Ishga keldim")
 async def check_in_start(message: Message):
-    if has_checked_in_today(message.from_user.id, "check_in"):
+    if has_checked_in_today(message.from_user.id, "ishga_keldi"):
         await message.answer("📌 Siz bugun allaqachon ishga kelgansiz.")
         return
     await message.answer("📍 Iltimos, 15 daqiqalik jonli lokatsiyani yuboring:", reply_markup=get_live_location_keyboard())
 
 @router.message(F.text == "🏁 Ishdan ketdim")
 async def check_out_start(message: Message):
-    if has_checked_in_today(message.from_user.id, "check_out"):
+    if has_checked_in_today(message.from_user.id, "ishdan_ketdi"):
         await message.answer("📌 Siz bugun allaqachon ishdan chiqqansiz.")
         return
     await message.answer("📍 Iltimos, 15 daqiqalik jonli lokatsiyani yuboring:", reply_markup=get_live_location_keyboard())
@@ -58,11 +58,11 @@ async def receive_location(message: Message):
 
     late_minutes = 0
     early_minutes = 0
-    action_type = "check_in" if not has_checked_in_today(user_id, "check_in") else "check_out"
+    action_type = "ishga_keldi" if not has_checked_in_today(user_id, "ishga_keldi") else "ishdan_ketdi"
 
-    if action_type == "check_in" and now_dt > start_dt:
+    if action_type == "ishga_keldi" and now_dt > start_dt:
         late_minutes = int((now_dt - start_dt).total_seconds() // 60)
-    elif action_type == "check_out" and now_dt < end_dt:
+    elif action_type == "ishdan_ketdi" and now_dt < end_dt:
         early_minutes = int((end_dt - now_dt).total_seconds() // 60)
 
     log_attendance(
@@ -78,7 +78,7 @@ async def receive_location(message: Message):
         note=""
     )
 
-    action_text = "🕒 Ishga keldi" if action_type == "check_in" else "🏁 Ishdan ketdi"
+    action_text = "🕒 Ishga keldi" if action_type == "ishga_keldi" else "🏁 Ishdan ketdi"
     status = []
     if late_minutes > 0:
         status.append(f"⏰ Kechikdi: {late_minutes} daqiqa")

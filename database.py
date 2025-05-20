@@ -33,16 +33,6 @@ def create_tables():
             note TEXT
         )
     """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            text TEXT,
-            date TEXT,
-            time TEXT
-        )
-    """)
-    conn.commit()
 
 def register_user(telegram_id, name, surname, birthdate, branch):
     cursor.execute("""
@@ -95,25 +85,86 @@ def log_attendance(telegram_id, action_type, time, date, branch, location,
 
 def save_note_to_today_attendance(telegram_id: int, note: str):
     today = datetime.now().strftime("%d.%m.%Y")
+    now = datetime.now().strftime("%H:%M")
+
+    # Foydalanuvchi ma'lumotlari
+    cursor.execute("SELECT id, name, surname, branch FROM users WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    if not row:
+        return
+    user_id, name, surname, branch = row
+    full_name = f"{name} {surname}"
+
+    # 1. Avval 'ishdan_ketdi' yozuvi borligini tekshirish
     cursor.execute("""
-        UPDATE attendance
-        SET note = ?
-        WHERE user_id = (
-            SELECT id FROM users WHERE telegram_id = ?
-        ) AND date = ? AND action_type = 'check_in'
-    """, (note, telegram_id, today))
+        SELECT id FROM attendance
+        WHERE user_id = ? AND date = ? AND action_type = 'ishdan_ketdi'
+    """, (user_id, today))
+    row = cursor.fetchone()
+    if row:
+        attendance_id = row[0]
+        cursor.execute("""
+            UPDATE attendance
+            SET note = CASE
+                WHEN note IS NULL OR note = '' THEN ?
+                ELSE note || ' | ' || ?
+            END
+            WHERE id = ?
+        """, (note, note, attendance_id))
+        conn.commit()
+        return
+
+    # 2. 'ishga_keldi' yozuvi borligini tekshirish
+    cursor.execute("""
+        SELECT id FROM attendance
+        WHERE user_id = ? AND date = ? AND action_type = 'ishga_keldi'
+    """, (user_id, today))
+    row = cursor.fetchone()
+    if row:
+        attendance_id = row[0]
+        cursor.execute("""
+            UPDATE attendance
+            SET note = CASE
+                WHEN note IS NULL OR note = '' THEN ?
+                ELSE note || ' | ' || ?
+            END
+            WHERE id = ?
+        """, (note, note, attendance_id))
+        conn.commit()
+        return
+
+    # 3. Agar izoh qatori bor bo‘lsa → unga qo‘shamiz
+    cursor.execute("""
+        SELECT id FROM attendance
+        WHERE user_id = ? AND date = ? AND action_type = 'izoh'
+    """, (user_id, today))
+    row = cursor.fetchone()
+    if row:
+        attendance_id = row[0]
+        cursor.execute("""
+            UPDATE attendance
+            SET note = CASE
+                WHEN note IS NULL OR note = '' THEN ?
+                ELSE note || ' | ' || ?
+            END,
+            time = ?  -- vaqtni yangilab qo‘yish ham mumkin
+            WHERE id = ?
+        """, (note, note, now, attendance_id))
+        conn.commit()
+        return
+
+    # 4. Umuman yozuv yo‘q bo‘lsa → yangi qator
+    cursor.execute("""
+        INSERT INTO attendance (
+            user_id, full_name, time, date, branch,
+            latitude, longitude, late_minutes, early_minutes, action_type, note
+        ) VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 'izoh', ?)
+    """, (
+        user_id, full_name, now, today, branch, note
+    ))
     conn.commit()
 
-def log_comment(telegram_id, text, date, time):
-    cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-    user = cursor.fetchone()
-    if user:
-        user_id = user[0]
-        cursor.execute("""
-            INSERT INTO comments (user_id, text, date, time)
-            VALUES (?, ?, ?, ?)
-        """, (user_id, text, date, time))
-        conn.commit()
+
 
 def get_birthdays_today():
     today = datetime.now().strftime("%d.%m")
@@ -142,35 +193,132 @@ def export_users_to_excel():
     df.to_excel(path, index=False)
     return path
 
+# def export_attendance_yearly():
+#     current_year = datetime.now().strftime("%Y")
+#
+#     query = """
+#         SELECT
+#             a.full_name        AS "F.I.Sh.",
+#             a.branch           AS "Filial",
+#             a.date             AS "Sana",
+#             a.time             AS "Vaqt",
+#             a.action_type      AS "Holat",
+#             a.late_minutes     AS "Kechikish (min)",
+#             a.early_minutes    AS "Erta ketish (min)",
+#             a.note             AS "Izoh"
+#         FROM attendance AS a
+#         WHERE substr(a.date, 7, 4) = ?
+#         ORDER BY a.date ASC, a.time ASC
+#     """
+#
+#     df = pd.read_sql_query(query, conn, params=(current_year,))
+#     path = f"attendance_{current_year}.xlsx"
+#     df.to_excel(path, index=False)
+#     return path
 def export_attendance_yearly():
-    import pandas as pd
-    from datetime import datetime
-
-    # Joriy yilni olish
     current_year = datetime.now().strftime("%Y")
 
-    # attendance jadvalidagi full_name ustunini olishga o'zgardi
     query = """
         SELECT
-            a.full_name        AS full_name,
-            a.branch           AS branch,
-            a.date             AS date,
-            a.time             AS time,
-            a.action_type      AS action_type,
-            a.late_minutes     AS late_minutes,
-            a.early_minutes    AS early_minutes,
-            a.note             AS note
-        FROM attendance AS a
+            u.id              AS "Hodim ID",
+            u.telegram_id     AS "Telegram ID",
+            a.full_name       AS "F.I.Sh.",
+            a.branch          AS "Filial",
+            a.date            AS "Sana",
+            a.time            AS "Vaqt",
+            a.action_type     AS "Holat",
+            a.late_minutes    AS "Kechikish (daqiqa)",
+            a.early_minutes   AS "Erta ketish (daqiqa)",
+            a.note            AS "Izoh"
+        FROM attendance a
+        JOIN users u ON a.user_id = u.id
         WHERE substr(a.date, 7, 4) = ?
-        ORDER BY a.date ASC, a.time ASC
+        ORDER BY a.full_name, a.date, a.time
     """
 
-    # So‘rovni bajarish
     df = pd.read_sql_query(query, conn, params=(current_year,))
 
-    # Excelga saqlash
-    path = f"attendance_{current_year}.xlsx"
-    df.to_excel(path, index=False)
-    return path
+    if df.empty:
+        return None
 
+    # ⏱ Kechikish va erta ketishni soat:daqiqaga o‘tkazish
+    def format_minutes(mins):
+        if not mins or mins == 0:
+            return ""
+        hours = mins // 60
+        minutes = mins % 60
+        return f"{hours}:{str(minutes).zfill(2)}"
 
+    df["Kechikish"] = df["Kechikish (daqiqa)"].apply(format_minutes)
+    df["Erta ketish"] = df["Erta ketish (daqiqa)"].apply(format_minutes)
+
+    df.drop(columns=["Kechikish (daqiqa)", "Erta ketish (daqiqa)"], inplace=True)
+
+    # ✅ Ustunlarni tartiblaymiz
+    df = df[[
+        "Hodim ID", "Telegram ID", "F.I.Sh.", "Filial", "Sana", "Vaqt",
+        "Holat", "Kechikish", "Erta ketish", "Izoh"
+    ]]
+
+    # 📊 Umumiy statistika hisoblash
+    def parse_minutes(val):
+        try:
+            if pd.isna(val) or not val.strip():
+                return 0
+            h, m = val.split(":")
+            return int(h) * 60 + int(m)
+        except:
+            return 0
+
+    df_keldi = df[df["Holat"] == "ishga_keldi"].copy()
+    df_ketdi = df[df["Holat"] == "ishdan_ketdi"].copy()
+
+    summary = (
+        df_keldi
+        .groupby(["Hodim ID", "F.I.Sh."])
+        .agg(
+            Ish_kunlari=("Sana", "nunique"),
+            Umumiy_kechikish=("Kechikish", lambda x: sum(parse_minutes(p) for p in x))
+        )
+        .reset_index()
+    )
+
+    erta = (
+        df_ketdi
+        .groupby(["Hodim ID", "F.I.Sh."])
+        .agg(Umumiy_erta_ketish=("Erta ketish", lambda x: sum(parse_minutes(p) for p in x)))
+        .reset_index()
+    )
+
+    summary = pd.merge(summary, erta, on=["Hodim ID", "F.I.Sh."], how="left").fillna(0)
+
+    def format_total(mins):
+        try:
+            mins = int(mins)
+            if mins <= 0:
+                return "0:00"
+            return f"{mins // 60}:{str(mins % 60).zfill(2)}"
+        except:
+            return "0:00"
+
+    summary["Umumiy kechikish"] = summary["Umumiy_kechikish"].apply(format_total)
+    summary["Umumiy erta ketish"] = summary["Umumiy_erta_ketish"].apply(format_total)
+    summary.drop(columns=["Umumiy_kechikish", "Umumiy_erta_ketish"], inplace=True)
+
+    # 📁 Excelga yozish
+    file_path = f"attendance_{current_year}.xlsx"
+    writer = pd.ExcelWriter(file_path, engine="xlsxwriter")
+
+    df.to_excel(writer, index=False, sheet_name="Davomat")
+    summary.to_excel(writer, index=False, sheet_name="Yakuniy statistikalar")
+
+    # 📐 Ustunlarga mos kenglik
+    for sheet in writer.sheets:
+        worksheet = writer.sheets[sheet]
+        data = df if sheet == "Davomat" else summary
+        for i, col in enumerate(data.columns):
+            max_len = max(data[col].astype(str).map(len).max(), len(col))
+            worksheet.set_column(i, i, max_len + 2)
+
+    writer.close()
+    return file_path
