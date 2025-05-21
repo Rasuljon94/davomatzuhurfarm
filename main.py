@@ -27,15 +27,6 @@ dp.include_router(admin_router)
 dp.include_router(comments_router)
 dp.include_router(reports_router)
 
-# # 🛠 Adminlar uchun slash komandalar
-# async def set_bot_commands(bot):
-#     await bot.set_my_commands([], scope=BotCommandScopeDefault())
-#     commands = [BotCommand(command="/delete_user", description="Foydalanuvchini o‘chirish")]
-#     for admin_id in ADMIN_IDS:
-#         try:
-#             await bot.set_my_commands(commands, scope=BotCommandScopeChat(chat_id=admin_id))
-#         except Exception as e:
-#             print(f"[Xatolik] Slash komandalar {admin_id} uchun o‘rnatilmadi: {e}")
 
 # 🛠 Adminlar va foydalanuvchilar uchun slash komandalarni belgilash
 async def set_bot_commands(bot):

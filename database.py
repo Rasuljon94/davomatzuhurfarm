@@ -1,7 +1,6 @@
 import sqlite3
 from datetime import datetime
 import pandas as pd
-from config import ALLOWED_USER_IDS
 
 
 from sqlite3 import Connection
@@ -44,7 +43,14 @@ def create_tables():
         )
     """)
 
+
     conn.commit()
+
+def get_all_users():
+    cursor.execute("SELECT telegram_id, name, surname FROM users")
+    rows = cursor.fetchall()
+    return [{"telegram_id": r[0], "name": r[1], "surname": r[2]} for r in rows]
+
 
 def add_allowed_user(telegram_id: int):
     cursor.execute("INSERT OR IGNORE INTO allowed_users (telegram_id) VALUES (?)", (telegram_id,))
@@ -75,10 +81,17 @@ def get_user_branch(telegram_id):
     row = cursor.fetchone()
     return row[0] if row else None
 
+# def get_user_name(telegram_id):
+#     cursor.execute("SELECT name, surname FROM users WHERE telegram_id = ?", (telegram_id,))
+#     row = cursor.fetchone()
+#     return f"{row[0]} {row[1]}" if row else "Noma'lum"
 def get_user_name(telegram_id):
     cursor.execute("SELECT name, surname FROM users WHERE telegram_id = ?", (telegram_id,))
     row = cursor.fetchone()
-    return f"{row[0]} {row[1]}" if row else "Noma'lum"
+    if row and row[0] and row[1]:
+        return f"{row[0]} {row[1]}"
+    return "❌ Ro‘yxatdan o‘tmagan"
+
 
 def has_checked_in_today(telegram_id, action_type):
     today = datetime.now().strftime("%d.%m.%Y")
@@ -200,36 +213,40 @@ def get_birthdays_today():
     """, (today,))
     return cursor.fetchall()
 
-def update_user_fields(telegram_id, fields: dict):
-    columns = ", ".join([f"{k} = ?" for k in fields.keys()])
-    values = list(fields.values())
-    values.append(telegram_id)
-    cursor.execute(f"""
-        UPDATE users SET {columns} WHERE telegram_id = ?
-    """, values)
+def delete_user_fields(telegram_id: int):
+    cursor.execute("DELETE FROM users WHERE telegram_id = ?", (telegram_id,))
     conn.commit()
 
 
 def delete_user(telegram_id):
+    today = datetime.now().strftime("%d.%m.%Y")
     cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
     row = cursor.fetchone()
     if not row:
         return
     user_id = row[0]
 
-    # Attendance yozuvlarini o‘chirish
-    cursor.execute("DELETE FROM attendance WHERE user_id = ?", (user_id,))
+    # Bugungi attendance yozuvlarini o'chiramiz
+    cursor.execute("DELETE FROM attendance WHERE user_id = ? AND date = ?", (user_id, today))
 
-    # Users jadvalidan o‘chirish
+    # Usersdan o'chiramiz
     cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
-    # ALLOWED_USER_IDS ro‘yxatidan chiqarish
-    try:
-        ALLOWED_USER_IDS.remove(telegram_id)
-    except ValueError:
-        pass
+    # ✅ Ruxsat berilganlar ro‘yxatidan ham o‘chiramiz
+    remove_allowed_user(telegram_id)
 
     conn.commit()
+
+
+def remove_allowed_user(telegram_id: int):
+    cursor.execute("DELETE FROM allowed_users WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+
+
+def load_allowed_users():
+    cursor.execute("SELECT telegram_id FROM allowed_users")
+    return [row[0] for row in cursor.fetchall()]
+
 
 
 def export_users_to_excel():
@@ -238,28 +255,7 @@ def export_users_to_excel():
     df.to_excel(path, index=False)
     return path
 
-# def export_attendance_yearly():
-#     current_year = datetime.now().strftime("%Y")
-#
-#     query = """
-#         SELECT
-#             a.full_name        AS "F.I.Sh.",
-#             a.branch           AS "Filial",
-#             a.date             AS "Sana",
-#             a.time             AS "Vaqt",
-#             a.action_type      AS "Holat",
-#             a.late_minutes     AS "Kechikish (min)",
-#             a.early_minutes    AS "Erta ketish (min)",
-#             a.note             AS "Izoh"
-#         FROM attendance AS a
-#         WHERE substr(a.date, 7, 4) = ?
-#         ORDER BY a.date ASC, a.time ASC
-#     """
-#
-#     df = pd.read_sql_query(query, conn, params=(current_year,))
-#     path = f"attendance_{current_year}.xlsx"
-#     df.to_excel(path, index=False)
-#     return path
+
 def export_attendance_yearly():
     current_year = datetime.now().strftime("%Y")
 
@@ -367,3 +363,42 @@ def export_attendance_yearly():
 
     writer.close()
     return file_path
+
+def export_attendance_monthly():
+    now = datetime.now()
+    months = [now.month, (now.month - 1 or 12)]
+    year = now.year
+
+    result_files = []
+
+    for month in months:
+        query = """
+            SELECT
+                u.id AS "Hodim ID",
+                u.telegram_id AS "Telegram ID",
+                a.full_name AS "F.I.Sh.",
+                a.branch AS "Filial",
+                a.date AS "Sana",
+                a.time AS "Vaqt",
+                a.action_type AS "Holat",
+                a.late_minutes AS "Kechikish (daqiqa)",
+                a.early_minutes AS "Erta ketish (daqiqa)",
+                a.note AS "Izoh"
+            FROM attendance a
+            JOIN users u ON a.user_id = u.id
+            WHERE strftime('%m', substr(a.date, 4, 2) || '/' || substr(a.date, 1, 2) || '/' || substr(a.date, 7, 4)) = ?
+              AND substr(a.date, 7, 4) = ?
+        """
+
+        month_str = f"{month:02d}"
+        df = pd.read_sql_query(query, conn, params=(month_str, str(year)))
+
+        if df.empty:
+            continue
+
+        filename = f"attendance_{year}_{month_str}.xlsx"
+        df.to_excel(filename, index=False)
+        result_files.append(filename)
+
+    # Agar 2ta fayl bo‘lsa – birlashtirib yuborilsa ham bo‘ladi
+    return result_files[0] if result_files else None

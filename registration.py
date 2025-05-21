@@ -2,8 +2,8 @@ from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from config import ADMIN_IDS, ALLOWED_USER_IDS
-from database import is_user_registered, register_user
+from config import ADMIN_IDS
+from database import is_user_registered, register_user,is_user_allowed
 from utils import get_main_keyboard
 from datetime import datetime
 import re
@@ -28,7 +28,7 @@ async def start_registration(message: Message, state: FSMContext):
         await message.answer("🔧 Siz adminsiz. Iltimos, /admin komandasidan foydalaning.")
         return
 
-    if user_id not in ALLOWED_USER_IDS:
+    if not is_user_allowed(user_id):
         await message.answer("❌ Siz ro'yxatdan o'tish uchun ruxsat etilmagansiz.")
         return
 
