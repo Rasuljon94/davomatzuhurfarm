@@ -105,7 +105,7 @@ async def ask_address(message: Message, state: FSMContext):
 @router.message(FSMRegistration.address)
 async def ask_phone(message: Message, state: FSMContext):
     await state.update_data(address=message.text.strip())
-    await message.answer("📞 Telefon raqamingizni kiriting (masalan, +998901234567):")
+    await message.answer("📞 Telefon raqamingizni kiriting +998 (masalan, 997400994):")
     await state.set_state(FSMRegistration.phone)
 
 @router.message(FSMRegistration.phone)
