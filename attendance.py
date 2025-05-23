@@ -7,10 +7,18 @@ from utils import (
     is_within_radius,
     get_live_location_keyboard,
     get_main_keyboard,
-    get_back_keyboard
+    get_back_keyboard,
+    format_minutes
 )
-from config import BRANCH_LOCATIONS,  ADMIN_IDS
-from database import log_attendance, has_checked_in_today, get_user_work_hours, get_user_name
+from config import BRANCH_LOCATIONS, ADMIN_IDS
+from database import (
+    log_attendance,
+    has_checked_in_today,
+    get_user_work_hours,
+    get_user_name
+)
+
+import random
 
 router = Router()
 
@@ -50,12 +58,6 @@ async def receive_location(message: Message):
         await message.answer("❌ Siz hech bir filial hududida emassiz.")
         return
 
-    # start_str, end_str = BRANCH_WORK_HOURS.get(found_branch, ("08:00", "17:00"))
-    # fmt = "%H:%M"
-    # now_dt = datetime.strptime(now, fmt)
-    # start_dt = datetime.strptime(start_str, fmt)
-    # end_dt = datetime.strptime(end_str, fmt)
-
     start_str, end_str = get_user_work_hours(user_id)
     if not start_str or not end_str:
         await message.answer("❗ Sizning ish vaqtingiz aniqlanmadi.")
@@ -66,15 +68,29 @@ async def receive_location(message: Message):
     start_dt = datetime.strptime(start_str, fmt)
     end_dt = datetime.strptime(end_str, fmt)
 
-    late_minutes = 0
-    early_minutes = 0
-    action_type = "ishga_keldi" if not has_checked_in_today(user_id, "ishga_keldi") else "ishdan_ketdi"
+    # Aniqlaymiz: ishga kelish yoki ishdan ketish
+    if not has_checked_in_today(user_id, "ishga_keldi"):
+        action_type = "ishga_keldi"
+        late_minutes = max(0, int((now_dt - start_dt).total_seconds() // 60)) if now_dt > start_dt else 0
+        early_minutes = 0
+        motivation = random.choice([
+            "💡 Bugungi kuningiz omadli va samarali o‘tsin!",
+            "🔥 Keling, bugun eng yaxshi natijalarga erishamiz!",
+            "👏 Sizning harakatlaringiz jamoaga ilhom bag‘ishlaydi!",
+            "🚀 Har kuni rivojlanish sari bir qadam oldinga!",
+        ])
+    else:
+        action_type = "ishdan_ketdi"
+        late_minutes = 0
+        early_minutes = max(0, int((end_dt - now_dt).total_seconds() // 60)) if now_dt < end_dt else 0
+        motivation = random.choice([
+            "🌇 Bugun qilgan mehnatingiz uchun rahmat! Dam oling!",
+            "🔁 Siz ajoyib ish qildingiz! Ertaga yangi kuch bilan qayting!",
+            "👌 Qadrli mehnatingiz tufayli jamoamiz rivojlanmoqda!",
+            "💤 Endi dam olish vaqti. Siz buni munosib bajardingiz!",
+        ])
 
-    if action_type == "ishga_keldi" and now_dt > start_dt:
-        late_minutes = int((now_dt - start_dt).total_seconds() // 60)
-    elif action_type == "ishdan_ketdi" and now_dt < end_dt:
-        early_minutes = int((end_dt - now_dt).total_seconds() // 60)
-
+    # Davomatni yozamiz
     log_attendance(
         telegram_id=user_id,
         full_name=full_name,
@@ -88,12 +104,13 @@ async def receive_location(message: Message):
         note=""
     )
 
+    # Javob va adminlarga xabar
     action_text = "🕒 Ishga keldi" if action_type == "ishga_keldi" else "🏁 Ishdan ketdi"
     status = []
     if late_minutes > 0:
-        status.append(f"⏰ Kechikdi: {late_minutes} daqiqa")
+        status.append(f"⏰ Kechikdi: {format_minutes(late_minutes)}")
     if early_minutes > 0:
-        status.append(f"⚠️ Erta ketdi: {early_minutes} daqiqa")
+        status.append(f"⚠️ Erta ketdi: {format_minutes(early_minutes)}")
 
     info = (
         f"👤 Hodim: {full_name}\n"
@@ -105,11 +122,11 @@ async def receive_location(message: Message):
     for admin_id in ADMIN_IDS:
         await message.bot.send_message(admin_id, info)
 
+    await message.answer(motivation)
     await message.answer("✅ Ma'lumot qayd etildi.", reply_markup=get_back_keyboard())
 
 @router.message(F.text == "🔙 Orqaga")
 async def back_to_menu(message: Message):
-    # Agar admin bo‘lsa, user menyusiga qaytirmaymiz
     if message.from_user.id in ADMIN_IDS:
         return
     await message.answer("🏠 Asosiy menyu:", reply_markup=get_main_keyboard())

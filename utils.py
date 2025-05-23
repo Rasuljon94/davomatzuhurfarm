@@ -41,3 +41,8 @@ def is_within_radius(user_location, branch_location, radius_km=0.03):
     except Exception as e:
         print(f"[Xatolik] Lokatsiyani tekshirishda muammo: {e}")
         return False
+
+def format_minutes(minutes):
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}:{str(mins).zfill(2)}"

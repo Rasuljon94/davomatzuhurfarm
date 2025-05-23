@@ -76,12 +76,22 @@ async def ask_start_time(message: Message, state: FSMContext):
 
 @router.message(FSMRegistration.start_time)
 async def ask_end_time(message: Message, state: FSMContext):
-    if not re.match(r"^\d{2}:\d{2}$", message.text.strip()):
+    text = message.text.strip()
+
+    if not re.match(r"^\d{2}:\d{2}$", text):
         await message.answer("❗ Format noto‘g‘ri. Masalan: 09:00")
         return
-    await state.update_data(start_time=message.text.strip())
+
+    try:
+        datetime.strptime(text, "%H:%M")
+    except ValueError:
+        await message.answer("❗ Soat noto‘g‘ri. 00:00 dan 23:59 oralig‘ida bo‘lishi kerak.")
+        return
+
+    await state.update_data(start_time=text)
     await message.answer("🕔 Ish tugash vaqtini HH:MM formatda kiriting (masalan, 18:00):")
     await state.set_state(FSMRegistration.end_time)
+
 
 @router.message(FSMRegistration.end_time)
 async def ask_address(message: Message, state: FSMContext):
@@ -101,10 +111,12 @@ async def ask_phone(message: Message, state: FSMContext):
 @router.message(FSMRegistration.phone)
 async def complete_registration(message: Message, state: FSMContext):
     phone = message.text.strip()
-    if not re.match(r"^\+998\d{9}$", phone):
-        await message.answer("❗ Telefon raqam +998 bilan boshlanib, 9 ta raqamdan iborat bo‘lishi kerak.")
+
+    if not re.match(r"^\d{9}$", phone):
+        await message.answer("❗ Telefon raqam faqat 9 ta raqamdan iborat bo‘lishi kerak (masalan: 901234567)")
         return
 
+    phone = "+998" + phone
     await state.update_data(phone=phone)
     data = await state.get_data()
 
@@ -121,3 +133,4 @@ async def complete_registration(message: Message, state: FSMContext):
 
     await message.answer("✅ Ro'yxatdan o'tish yakunlandi!", reply_markup=get_main_keyboard())
     await state.clear()
+
