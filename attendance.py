@@ -1,5 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 from datetime import datetime
 from utils import (
     get_current_time,
@@ -20,6 +22,10 @@ from database import (
 
 import random
 
+class FSMAction(StatesGroup):
+    ishga_keldi = State()
+    ishdan_ketdi = State()
+
 router = Router()
 
 @router.message(F.text == "✅ Ishga keldim")
@@ -31,6 +37,11 @@ async def check_in_start(message: Message):
 
 @router.message(F.text == "🏁 Ishdan ketdim")
 async def check_out_start(message: Message):
+
+    if not has_checked_in_today(message.from_user.id, "ishga_keldi"):
+        await message.answer("❌ Siz hali ishga kelmagansiz. Avval '✅ Ishga keldim' tugmasini bosing.")
+        return
+
     if has_checked_in_today(message.from_user.id, "ishdan_ketdi"):
         await message.answer("📌 Siz bugun allaqachon ishdan chiqqansiz.")
         return
@@ -68,29 +79,40 @@ async def receive_location(message: Message):
     start_dt = datetime.strptime(start_str, fmt)
     end_dt = datetime.strptime(end_str, fmt)
 
-    # Aniqlaymiz: ishga kelish yoki ishdan ketish
     if not has_checked_in_today(user_id, "ishga_keldi"):
+        # ✅ ISHGA KELDI
         action_type = "ishga_keldi"
         late_minutes = max(0, int((now_dt - start_dt).total_seconds() // 60)) if now_dt > start_dt else 0
         early_minutes = 0
-        motivation = random.choice([
-            "💡 Bugungi kuningiz omadli va samarali o‘tsin!",
-            "🔥 Keling, bugun eng yaxshi natijalarga erishamiz!",
-            "👏 Sizning harakatlaringiz jamoaga ilhom bag‘ishlaydi!",
-            "🚀 Har kuni rivojlanish sari bir qadam oldinga!",
-        ])
+
+        if late_minutes > 0:
+            await message.answer(
+                f"❌ Siz {late_minutes} daqiqaga kech qoldingiz. "
+                f"Bunday holat takrorlanmasin. Iltimos, ishga o‘z vaqtida keling."
+            )
+        else:
+            await message.answer(random.choice([
+                "💡 Bugungi kuningiz omadli va samarali o‘tsin!",
+                "🔥 Keling, bugun eng yaxshi natijalarga erishamiz!",
+                "👏 Sizning harakatlaringiz jamoaga ilhom bag‘ishlaydi!",
+                "🚀 Har kuni rivojlanish sari bir qadam oldinga!"
+            ]))
     else:
+        # 🏁 ISHDAN KETDI
         action_type = "ishdan_ketdi"
         late_minutes = 0
         early_minutes = max(0, int((end_dt - now_dt).total_seconds() // 60)) if now_dt < end_dt else 0
-        motivation = random.choice([
-            "🌇 Bugun qilgan mehnatingiz uchun rahmat! Dam oling!",
-            "🔁 Siz ajoyib ish qildingiz! Ertaga yangi kuch bilan qayting!",
-            "👌 Qadrli mehnatingiz tufayli jamoamiz rivojlanmoqda!",
-            "💤 Endi dam olish vaqti. Siz buni munosib bajardingiz!",
-        ])
 
-    # Davomatni yozamiz
+        await message.answer("🏁 Ish vaqtingiz tugadi. Endi dam olishingiz mumkin.")
+        if early_minutes == 0:
+            await message.answer(random.choice([
+                "🌇 Bugun qilgan mehnatingiz uchun rahmat! Dam oling!",
+                "🔁 Siz ajoyib ish qildingiz! Ertaga yangi kuch bilan qayting!",
+                "👌 Qadrli mehnatingiz tufayli jamoamiz rivojlanmoqda!",
+                "💤 Endi dam olish vaqti. Siz buni munosib bajardingiz!"
+            ]))
+
+    # ⏺ Yozuvni bazaga yozamiz
     log_attendance(
         telegram_id=user_id,
         full_name=full_name,
@@ -104,7 +126,7 @@ async def receive_location(message: Message):
         note=""
     )
 
-    # Javob va adminlarga xabar
+    # 🧾 Adminlarga xabar
     action_text = "🕒 Ishga keldi" if action_type == "ishga_keldi" else "🏁 Ishdan ketdi"
     status = []
     if late_minutes > 0:
@@ -122,11 +144,27 @@ async def receive_location(message: Message):
     for admin_id in ADMIN_IDS:
         await message.bot.send_message(admin_id, info)
 
-    await message.answer(motivation)
     await message.answer("✅ Ma'lumot qayd etildi.", reply_markup=get_back_keyboard())
+
+
+
 
 @router.message(F.text == "🔙 Orqaga")
 async def back_to_menu(message: Message):
     if message.from_user.id in ADMIN_IDS:
         return
     await message.answer("🏠 Asosiy menyu:", reply_markup=get_main_keyboard())
+
+@router.message(F.text == "📘 Joylashuvni qanday yuborish kerak?")
+async def explain_live_location(message: Message):
+    instruction = (
+        "📍 *Jonli lokatsiyani qanday yuborish kerak?*\n\n"
+        "1. Telefoningizda pastdan 📎 (yoki +) belgini bosing.\n"
+        "2. “Joylashuv” yoki “Location” menyusini tanlang.\n"
+        "3. “Jonli joylashuvni ulashish” degan tugmani tanlang.\n"
+        "4. *15 daqiqa* variantini tanlab, “Ulashish” tugmasini bosing.\n\n"
+        "⚠️ Eslatma: Oddiy lokatsiya yuborilsa, bot qabul qilmaydi.\n\n"
+        "✅ Siz faqat 15 daqiqalik jonli lokatsiya yuborganingizdagina tizim sizni ishga kelgan deb qayd etadi."
+    )
+    await message.answer(instruction, parse_mode="Markdown")
+

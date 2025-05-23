@@ -25,7 +25,7 @@ def get_back_keyboard():
 def get_live_location_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📍 Jonli lokatsiyani yuborish", request_location=True)],
+            [KeyboardButton(text="📘 Joylashuvni qanday yuborish kerak?")],
             [KeyboardButton(text="🔙 Orqaga")]
         ],
         resize_keyboard=True,

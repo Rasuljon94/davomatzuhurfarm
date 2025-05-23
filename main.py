@@ -1,5 +1,6 @@
 import logging
 import asyncio
+from datetime import datetime  # tepada import qilingan bo‘lishi kerak
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
@@ -14,6 +15,7 @@ from comments import router as comments_router
 from admin import router as admin_router
 from reports import router as reports_router
 from tasks import scheduler, schedule_user_notifications, schedule_birthday_check
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
 
 
@@ -58,12 +60,24 @@ async def set_bot_commands(bot):
 
 # 🚀 Botni ishga tushirish
 async def main():
+    print("🕒 Bot ishga tushgan vaqt:", datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
     await set_bot_commands(bot)
     logging.info("✅ Bot ishga tushdi!")
 
     # 📅 Bildirishnomalarni rejalashtirish
+    # logging.getLogger("apscheduler").setLevel(logging.DEBUG)
+
     schedule_user_notifications(bot)
     schedule_birthday_check(bot)
+
+    def listener(event):
+        if event.exception:
+            print(f"❌ Xatolik: {event}")
+        else:
+            print(f"✅ Eslatma yuborildi: {event.job_id}")
+
+
+    scheduler.add_listener(listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
     scheduler.start()
 
     await dp.start_polling(bot)
