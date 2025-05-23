@@ -15,13 +15,17 @@ def get_main_keyboard():
 
 def get_back_keyboard():
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🔙 Orqaga")]],
-        resize_keyboard=True
+        keyboard=[
+            [KeyboardButton(text="🔙 Orqaga")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
 
 def get_live_location_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
+            [KeyboardButton(text="📍 Jonli lokatsiyani yuborish", request_location=True)],
             [KeyboardButton(text="🔙 Orqaga")]
         ],
         resize_keyboard=True,
