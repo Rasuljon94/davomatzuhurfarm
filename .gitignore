@@ -1,12 +1,12 @@
 # Sirli va maxsus fayllar
 config.py
-attendance.db
 hisobot_*.xlsx
 
 # Python cache
 __pycache__/
 *.pyc
 *.pyo
+*.db
 
 # Virtual environment
 .venv/
