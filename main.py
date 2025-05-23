@@ -15,17 +15,21 @@ from admin import router as admin_router
 from reports import router as reports_router
 from tasks import scheduler, schedule_user_notifications, schedule_birthday_check
 
+
+
+
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 create_tables()
 
-# 🚏 Routerlar
-dp.include_router(attendance_router)
+# 🚏 Routerlar (tartib muhim)
 dp.include_router(registration_router)
 dp.include_router(admin_router)
-dp.include_router(comments_router)
+dp.include_router(attendance_router)
 dp.include_router(reports_router)
+dp.include_router(comments_router)   # ← keyin hodimlar izohlari
+
 
 
 # 🛠 Adminlar va foydalanuvchilar uchun slash komandalarni belgilash

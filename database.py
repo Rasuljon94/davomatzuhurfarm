@@ -46,10 +46,30 @@ def create_tables():
 
     conn.commit()
 
+def clear_user_fields(telegram_id: int):
+    cursor.execute("""
+        UPDATE users
+        SET name = NULL,
+            surname = NULL,
+            birthdate = NULL,
+            start_time = NULL,
+            end_time = NULL,
+            address = NULL,
+            phone = NULL
+        WHERE telegram_id = ?
+    """, (telegram_id,))
+    conn.commit()
+
+
 def get_all_users():
-    cursor.execute("SELECT telegram_id, name, surname FROM users")
+    cursor.execute("""
+        SELECT telegram_id, name, surname 
+        FROM users
+        WHERE name IS NOT NULL AND surname IS NOT NULL
+    """)
     rows = cursor.fetchall()
     return [{"telegram_id": r[0], "name": r[1], "surname": r[2]} for r in rows]
+
 
 
 def add_allowed_user(telegram_id: int):
@@ -63,18 +83,37 @@ def is_user_allowed(telegram_id: int) -> bool:
 
 
 def register_user(telegram_id, name, surname, birthdate, start_time, end_time, address, phone):
-    cursor.execute("""
-        INSERT OR IGNORE INTO users (
-            telegram_id, name, surname, birthdate,
-            start_time, end_time, address, phone
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (telegram_id, name, surname, birthdate, start_time, end_time, address, phone))
+    cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
+    exists = cursor.fetchone()
+
+    if exists:
+        # 🔄 Mavjud bo‘lsa, yangilaydi
+        cursor.execute("""
+            UPDATE users
+            SET name = ?, surname = ?, birthdate = ?, start_time = ?, end_time = ?, address = ?, phone = ?
+            WHERE telegram_id = ?
+        """, (name, surname, birthdate, start_time, end_time, address, phone, telegram_id))
+    else:
+        # ➕ Yo‘q bo‘lsa, yangi foydalanuvchi qo‘shadi
+        cursor.execute("""
+            INSERT INTO users (telegram_id, name, surname, birthdate, start_time, end_time, address, phone)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (telegram_id, name, surname, birthdate, start_time, end_time, address, phone))
+
     conn.commit()
 
 
+
 def is_user_registered(telegram_id):
-    cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
-    return cursor.fetchone() is not None
+    cursor.execute("""
+        SELECT name, surname FROM users WHERE telegram_id = ?
+    """, (telegram_id,))
+    row = cursor.fetchone()
+    if not row:
+        return False
+    name, surname = row
+    return bool(name and surname)  # Ikkalasi ham bo‘sh bo‘lmasligi kerak
+
 
 def get_user_branch(telegram_id):
     cursor.execute("SELECT branch FROM users WHERE telegram_id = ?", (telegram_id,))
@@ -219,20 +258,15 @@ def delete_user_fields(telegram_id: int):
 
 
 def delete_user(telegram_id):
-    today = datetime.now().strftime("%d.%m.%Y")
     cursor.execute("SELECT id FROM users WHERE telegram_id = ?", (telegram_id,))
     row = cursor.fetchone()
     if not row:
         return
     user_id = row[0]
 
-    # Bugungi attendance yozuvlarini o'chiramiz
-    cursor.execute("DELETE FROM attendance WHERE user_id = ? AND date = ?", (user_id, today))
-
-    # Usersdan o'chiramiz
+    # ❌ attendance jadvalidan hech narsa o‘chirilmaydi
+    # 🔄 Faqat users va allowed_users dan o‘chiramiz
     cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-
-    # ✅ Ruxsat berilganlar ro‘yxatidan ham o‘chiramiz
     remove_allowed_user(telegram_id)
 
     conn.commit()
@@ -260,22 +294,24 @@ def export_attendance_yearly():
     current_year = datetime.now().strftime("%Y")
 
     query = """
-        SELECT
-            u.id              AS "Hodim ID",
-            u.telegram_id     AS "Telegram ID",
-            a.full_name       AS "F.I.Sh.",
-            a.branch          AS "Filial",
-            a.date            AS "Sana",
-            a.time            AS "Vaqt",
-            a.action_type     AS "Holat",
-            a.late_minutes    AS "Kechikish (daqiqa)",
-            a.early_minutes   AS "Erta ketish (daqiqa)",
-            a.note            AS "Izoh"
-        FROM attendance a
-        JOIN users u ON a.user_id = u.id
-        WHERE substr(a.date, 7, 4) = ?
-        ORDER BY a.full_name, a.date, a.time
-    """
+           SELECT
+               u.id              AS "Hodim ID",
+               u.telegram_id     AS "Telegram ID",
+               a.full_name       AS "F.I.Sh.",
+               a.branch          AS "Filial",
+               a.date            AS "Sana",
+               a.time            AS "Vaqt",
+               a.action_type     AS "Holat",
+               a.late_minutes    AS "Kechikish (daqiqa)",
+               a.early_minutes   AS "Erta ketish (daqiqa)",
+               a.note            AS "Izoh",
+               u.start_time      AS "Ish boshlanishi",
+               u.end_time        AS "Ish tugashi"
+           FROM attendance a
+           JOIN users u ON a.user_id = u.id
+           WHERE substr(a.date, 7, 4) = ?
+           ORDER BY a.full_name, a.date, a.time
+       """
 
     df = pd.read_sql_query(query, conn, params=(current_year,))
 
@@ -296,9 +332,9 @@ def export_attendance_yearly():
     df.drop(columns=["Kechikish (daqiqa)", "Erta ketish (daqiqa)"], inplace=True)
 
     # ✅ Ustunlarni tartiblaymiz
-    df = df[[
-        "Hodim ID", "Telegram ID", "F.I.Sh.", "Filial", "Sana", "Vaqt",
-        "Holat", "Kechikish", "Erta ketish", "Izoh"
+    df = df[[  # tartib
+        "Hodim ID", "Telegram ID", "F.I.Sh.", "Filial", "Sana", "Vaqt", "Holat",
+        "Ish boshlanishi", "Ish tugashi", "Kechikish", "Erta ketish", "Izoh"
     ]]
 
     # 📊 Umumiy statistika hisoblash
@@ -364,41 +400,188 @@ def export_attendance_yearly():
     writer.close()
     return file_path
 
+
 def export_attendance_monthly():
     now = datetime.now()
-    months = [now.month, (now.month - 1 or 12)]
-    year = now.year
+    current_month = f"{now.month:02d}.{now.year}"
 
-    result_files = []
+    query = """
+        SELECT
+            u.id              AS "Hodim ID",
+            u.telegram_id     AS "Telegram ID",
+            a.full_name       AS "F.I.Sh.",
+            a.branch          AS "Filial",
+            a.date            AS "Sana",
+            a.time            AS "Vaqt",
+            a.action_type     AS "Holat",
+            a.late_minutes    AS "Kechikish (daqiqa)",
+            a.early_minutes   AS "Erta ketish (daqiqa)",
+            a.note            AS "Izoh",
+            u.start_time      AS "Ish boshlanishi",
+            u.end_time        AS "Ish tugashi"
+        FROM attendance a
+        JOIN users u ON a.user_id = u.id
+        WHERE substr(a.date, 4, 7) = ?
+        ORDER BY a.full_name, a.date, a.time
+    """
 
-    for month in months:
-        query = """
-            SELECT
-                u.id AS "Hodim ID",
-                u.telegram_id AS "Telegram ID",
-                a.full_name AS "F.I.Sh.",
-                a.branch AS "Filial",
-                a.date AS "Sana",
-                a.time AS "Vaqt",
-                a.action_type AS "Holat",
-                a.late_minutes AS "Kechikish (daqiqa)",
-                a.early_minutes AS "Erta ketish (daqiqa)",
-                a.note AS "Izoh"
-            FROM attendance a
-            JOIN users u ON a.user_id = u.id
-            WHERE strftime('%m', substr(a.date, 4, 2) || '/' || substr(a.date, 1, 2) || '/' || substr(a.date, 7, 4)) = ?
-              AND substr(a.date, 7, 4) = ?
-        """
+    df = pd.read_sql_query(query, conn, params=(current_month,))
 
-        month_str = f"{month:02d}"
-        df = pd.read_sql_query(query, conn, params=(month_str, str(year)))
+    if df.empty:
+        return None
 
-        if df.empty:
-            continue
+    # ⏱ format: 15 -> 0:15, 75 -> 1:15
+    def format_minutes(mins):
+        if not mins or mins == 0:
+            return ""
+        hours = mins // 60
+        minutes = mins % 60
+        return f"{hours}:{str(minutes).zfill(2)}"
 
-        filename = f"attendance_{year}_{month_str}.xlsx"
-        df.to_excel(filename, index=False)
-        result_files.append(filename)
+    df["Kechikish"] = df["Kechikish (daqiqa)"].apply(format_minutes)
+    df["Erta ketish"] = df["Erta ketish (daqiqa)"].apply(format_minutes)
 
-    # Agar 2ta fayl bo‘lsa – birlashtirib yuborilsa ham bo‘ladi
-    return result_files[0] if result_files else None
+    df.drop(columns=["Kechikish (daqiqa)", "Erta ketish (daqiqa)"], inplace=True)
+
+    df = df[[  # tartib
+        "Hodim ID", "Telegram ID", "F.I.Sh.", "Filial", "Sana", "Vaqt", "Holat",
+        "Ish boshlanishi", "Ish tugashi", "Kechikish", "Erta ketish", "Izoh"
+    ]]
+
+    # 📊 Yakuniy statistikalar
+    def parse_minutes(val):
+        try:
+            if pd.isna(val) or not val.strip():
+                return 0
+            h, m = val.split(":")
+            return int(h) * 60 + int(m)
+        except:
+            return 0
+
+    df_keldi = df[df["Holat"] == "ishga_keldi"].copy()
+    df_ketdi = df[df["Holat"] == "ishdan_ketdi"].copy()
+
+    summary = (
+        df_keldi
+        .groupby(["Hodim ID", "F.I.Sh."])
+        .agg(
+            Ish_kunlari=("Sana", "nunique"),
+            Umumiy_kechikish=("Kechikish", lambda x: sum(parse_minutes(p) for p in x))
+        )
+        .reset_index()
+    )
+
+    erta = (
+        df_ketdi
+        .groupby(["Hodim ID", "F.I.Sh."])
+        .agg(Umumiy_erta_ketish=("Erta ketish", lambda x: sum(parse_minutes(p) for p in x)))
+        .reset_index()
+    )
+
+    summary = pd.merge(summary, erta, on=["Hodim ID", "F.I.Sh."], how="left").fillna(0)
+
+    def format_total(mins):
+        try:
+            mins = int(mins)
+            if mins <= 0:
+                return "0:00"
+            return f"{mins // 60}:{str(mins % 60).zfill(2)}"
+        except:
+            return "0:00"
+
+    summary["Umumiy kechikish"] = summary["Umumiy_kechikish"].apply(format_total)
+    summary["Umumiy erta ketish"] = summary["Umumiy_erta_ketish"].apply(format_total)
+    summary.drop(columns=["Umumiy_kechikish", "Umumiy_erta_ketish"], inplace=True)
+
+    # 📁 Excelga yozish
+    file_path = f"attendance_{now.year}_{now.month:02d}.xlsx"
+    writer = pd.ExcelWriter(file_path, engine="xlsxwriter")
+
+    df.to_excel(writer, index=False, sheet_name="Davomat")
+    summary.to_excel(writer, index=False, sheet_name="Yakuniy statistikalar")
+
+    # 📐 Ustunlarga mos kenglik
+    for sheet in writer.sheets:
+        worksheet = writer.sheets[sheet]
+        data = df if sheet == "Davomat" else summary
+        for i, col in enumerate(data.columns):
+            max_len = max(data[col].astype(str).map(len).max(), len(col))
+            worksheet.set_column(i, i, max_len + 2)
+
+    writer.close()
+    return file_path
+
+def export_attendance_previous_month():
+    today = datetime.now()
+    year = today.year
+    month = today.month - 1 if today.month > 1 else 12
+    if today.month == 1:
+        year -= 1  # Agar yanvar bo‘lsa, yil kamayadi
+
+    target = f"{month:02d}.{year}"
+
+    query = """
+        SELECT
+            u.id              AS "Hodim ID",
+            u.telegram_id     AS "Telegram ID",
+            u.start_time      AS "Boshlanish vaqti",
+            u.end_time        AS "Tugash vaqti",
+            a.full_name       AS "F.I.Sh.",
+            a.branch          AS "Filial",
+            a.date            AS "Sana",
+            a.time            AS "Vaqt",
+            a.action_type     AS "Holat",
+            a.late_minutes    AS "Kechikish (daqiqa)",
+            a.early_minutes   AS "Erta ketish (daqiqa)",
+            a.note            AS "Izoh"
+        FROM attendance a
+        JOIN users u ON a.user_id = u.id
+        WHERE substr(a.date, 4, 7) = ?
+        ORDER BY a.full_name, a.date, a.time
+    """
+
+    df = pd.read_sql_query(query, conn, params=(target,))
+    if df.empty:
+        return None
+
+    # Vaqtlarni formatlash
+    def format_minutes(mins):
+        if not mins or mins == 0:
+            return ""
+        hours = mins // 60
+        minutes = mins % 60
+        return f"{hours}:{str(minutes).zfill(2)}"
+
+    df["Kechikish"] = df["Kechikish (daqiqa)"].apply(format_minutes)
+    df["Erta ketish"] = df["Erta ketish (daqiqa)"].apply(format_minutes)
+    df.drop(columns=["Kechikish (daqiqa)", "Erta ketish (daqiqa)"], inplace=True)
+
+    df = df[[  # ustun tartibi
+        "Hodim ID", "Telegram ID", "F.I.Sh.", "Filial", "Sana", "Vaqt", "Holat",
+        "Boshlanish vaqti", "Tugash vaqti", "Kechikish", "Erta ketish", "Izoh"
+    ]]
+
+    file_path = f"attendance_{year}_{month:02d}.xlsx"
+    writer = pd.ExcelWriter(file_path, engine="xlsxwriter")
+
+    df.to_excel(writer, index=False, sheet_name="Davomat")
+
+    # Ustun kengligi avtomatik
+    worksheet = writer.sheets["Davomat"]
+    for i, col in enumerate(df.columns):
+        max_len = max(df[col].astype(str).map(len).max(), len(col))
+        worksheet.set_column(i, i, max_len + 2)
+
+    writer.close()
+    return file_path
+
+
+def get_user_work_hours(telegram_id: int):
+    cursor.execute("SELECT start_time, end_time FROM users WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    if row and row[0] and row[1]:
+        return row[0], row[1]
+    return None, None
+
+
+

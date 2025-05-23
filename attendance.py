@@ -9,8 +9,8 @@ from utils import (
     get_main_keyboard,
     get_back_keyboard
 )
-from config import BRANCH_LOCATIONS, BRANCH_WORK_HOURS, ADMIN_IDS
-from database import log_attendance, has_checked_in_today, get_user_branch, get_user_name
+from config import BRANCH_LOCATIONS,  ADMIN_IDS
+from database import log_attendance, has_checked_in_today, get_user_work_hours, get_user_name
 
 router = Router()
 
@@ -50,7 +50,17 @@ async def receive_location(message: Message):
         await message.answer("❌ Siz hech bir filial hududida emassiz.")
         return
 
-    start_str, end_str = BRANCH_WORK_HOURS.get(found_branch, ("08:00", "17:00"))
+    # start_str, end_str = BRANCH_WORK_HOURS.get(found_branch, ("08:00", "17:00"))
+    # fmt = "%H:%M"
+    # now_dt = datetime.strptime(now, fmt)
+    # start_dt = datetime.strptime(start_str, fmt)
+    # end_dt = datetime.strptime(end_str, fmt)
+
+    start_str, end_str = get_user_work_hours(user_id)
+    if not start_str or not end_str:
+        await message.answer("❗ Sizning ish vaqtingiz aniqlanmadi.")
+        return
+
     fmt = "%H:%M"
     now_dt = datetime.strptime(now, fmt)
     start_dt = datetime.strptime(start_str, fmt)
